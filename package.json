@@ -1,0 +1,23 @@
+{
+  "name": "lyt",
+  "version": "0.0.1",
+  "description": "",
+  "main": "server.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "lyt",
+  "license": "MIT",
+  "dependencies": {
+    "@dropb/ffprobe": "^2.0.0",
+    "@hapi/hapi": "^20.1.5",
+    "@hapi/inert": "^6.0.3",
+    "app-root-path": "^3.0.0",
+    "cors": "^2.8.5",
+    "express": "^4.17.1",
+    "musicbrainz-api": "^0.6.0",
+    "socket.io": "^4.1.2",
+    "throttle": "^1.0.3",
+    "youtube-dl-wrap": "^2.1.0"
+  }
+}
