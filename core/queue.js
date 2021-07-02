@@ -1,8 +1,9 @@
-const fs = require("fs");
-const { PassThrough } = require("stream");
-const throttle = require("throttle");
+const fs = require('fs');
+const { PassThrough } = require('stream');
+const throttle = require('throttle');
 
-const Song = require("./song");
+const { generateRandomId } = require('./utils');
+const Song = require('./song');
 
 
 class Queue {
@@ -10,14 +11,21 @@ class Queue {
     this._sinks = new Map();
     this._songs = [];
     this._currentSong = null;
+    this._throttled = null;
     this.isPlaying = false;
+
+    this.onSongUpdated = (song) => false;
+    this.onSongPreparing = () => false;
+    this.onSongReady = () => false;
+    this.onQueueFinished = () => false;
   }
 
   init() {
-    this._songs.push(new Song("rena laine pigstep"));
-    this._songs.push(new Song("grimes flesh without blood"));
-    this._songs.push(new Song("why won't they talk to me tame impala"));
-    this._songs.push(new Song("phospholipid blood cultures"));
+    this._songs.push(new Song('grimes flesh without blood'));
+    this._songs.push(new Song('dream steppin two people'));
+    this._songs.push(new Song('unknown mortal multi-love'));
+    this._songs.push(new Song('lorn perfekt dark'));
+    this._songs.push(new Song('amor de que miku hatsune'));
 
     this._currentSong = this._songs.pop();
   }
@@ -49,44 +57,66 @@ class Queue {
     }
   }
 
-  update(callback) {
-    console.log(`[QUEUE] Preparing song "${this._currentSong.searchString}"...`);
+  update() {
+    console.log(`[QUEUE] Preparing song '${this._currentSong.url}'...`);
+
+    this.onSongPreparing();
 
     this._currentSong.prepare((filename) => {
       this.isPlaying = true;
 
       const bitRate = this._currentSong.bitrate;
-      const songReadable = fs.createReadStream(filename);
+      this._readable = fs.createReadStream(filename);
 
-      console.log(`[QUEUE] Now playing: "${this._currentSong.title} - ${this._currentSong.artist}" at ${bitRate}b/s.`);
+      console.log(`[QUEUE] Now playing: '${this._currentSong.artist} - ${this._currentSong.title}'.`);
 
-      const throttleTransformable = new throttle(bitRate / 8);
+      // Prepare old sinks for new data
+      for (const [id, _] of this._sinks) {
+        this._sinks.set(id, PassThrough());
+      }
 
-      throttleTransformable.on("data", (chunk) => {
+      // Initialize a Throttle transformable stream
+      this._throttled = new throttle(bitRate / 8);
+
+      this._throttled.on('data', (chunk) => {
         this._broadcast(chunk);
       });
 
-      throttleTransformable.on("end", () => {
-        // TODO: Delete temporary file
-        console.log(`[QUEUE] Song is over.`);
+      this._throttled.on('end', () => {
+        // TODO: Delete temporary files.
+        console.log('[QUEUE] Song is over.');
 
         if (this._songs.length == 0) {
           this.isPlaying = false;
+          this.onQueueFinished();
         } else {
           this._currentSong = this._songs.pop();
-          this.update(callback);
+          this.update();
         }
       });
 
-      songReadable.pipe(throttleTransformable);
+      this._readable.pipe(this._throttled);
 
-      callback(this._currentSong);
+      this.onSongUpdated(this._currentSong);
+      this.onSongReady();
     });
   }
-}
 
-function generateRandomId() {
-  return Math.random().toString(36).slice(2);
+  skipSong() {
+    if (this._readable) {
+      this._readable.close();
+    }
+
+    if (this._throttled) {
+      this._throttled.removeAllListeners('data');
+      this._throttled.removeAllListeners('end');
+    }
+
+    if (this._songs.length > 0) {
+      this._currentSong = this._songs.pop();
+      this.update();
+    }
+  }
 }
 
 module.exports = Queue;
