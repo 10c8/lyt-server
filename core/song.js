@@ -25,17 +25,21 @@ ffprobe.path = path.join(__root, '/bin/ffprobe.exe');
 
 // Main code
 class Song {
-  constructor(url) {
-    this.url = url;
-    this.mbid = '';
-    this.title = '';
-    this.artist = '';
-    this.album = '';
-    this.cover = '';
+  constructor(songInfo) {
+    this.url = `ytsearch:${songInfo.title} - ${songInfo.artist}`;
+    this.title = songInfo.title;
+    this.artist = songInfo.artist;
+    this.album = songInfo.album;
+    this.coverUrls = songInfo.coverUrls;
     this.bitrate = 0;
+  }
 
-    if (!this.url.startsWith('http')) {
-      this.url = 'ytsearch:' + this.url;
+  getMetadata() {
+    return {
+      title: this.title,
+      artist: this.artist,
+      album: this.album,
+      coverUrls: this.coverUrls
     }
   }
 
@@ -43,31 +47,9 @@ class Song {
    * Tries to download the song from YouTube and populate the object with the song's metadata.
    * @param {Function} cb The callback function.
    */
-  async prepare(cb) {
+  prepare(cb) {
     // Generate a random ID for the song file
     const randomId = generateRandomId();
-
-    // Get video metadata
-    console.log('[SONG] Fetching YouTube metadata...');
-    const meta = await ytdl.getVideoInfo(`ytsearch:${this.url}`);
-
-    // Then fetch actual metadata from MusicBrainz
-    console.log('[SONG] Searching MusicBrainz...');
-    const query = await mbapi.searchRelease(meta.fulltitle);
-    const release = query.releases[0];
-
-    this.mbid = release.id;
-    this.title = release.title;
-    this.cover = `http://coverartarchive.org/release/${this.mbid}/front`;
-
-    release['artist-credit'].forEach(credit => {
-      if (this.artist != '')
-        this.artist += ', ';
-
-      this.artist += credit.artist.name;
-    });
-
-    this.album = release['release-group'].title;
 
     // Download song data
     const fullFilename = path.join(__root, `/temp/${randomId}.mp3`);

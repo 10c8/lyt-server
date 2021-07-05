@@ -6,65 +6,65 @@ const { generateRandomId } = require('./utils');
 const Song = require('./song');
 
 
+const QueueStatus = {
+  IDLE: 0,
+  PLAYING: 1,
+  PAUSED: 2
+};
+
 class Queue {
-  constructor() {
+  constructor(rid, callbacks) {
+    this.status = QueueStatus.IDLE;
+    this.rid = rid;
     this._sinks = new Map();
     this._songs = [];
+    this._currentSongIndex = 0;
     this._currentSong = null;
     this._throttled = null;
-    this.isPlaying = false;
 
-    this.onSongUpdated = (song) => false;
-    this.onSongPreparing = () => false;
-    this.onSongReady = () => false;
-    this.onQueueFinished = () => false;
+    this.onQueueStarted = callbacks.onQueueStarted;
+    this.onQueuePaused = callbacks.onQueuePaused;
+    this.onQueueUnpaused = callbacks.onQueueUnpaused;
+    this.onQueueSkipped = callbacks.onQueueSkipped;
+    this.onQueueUpdated = callbacks.onQueueUpdated;
+    this.onQueueFinished = callbacks.onQueueFinished;
+    this.onSongUpdated = callbacks.onSongUpdated;
+    this.onSongPreparing = callbacks.onSongPreparing;
+    this.onSongReady = callbacks.onSongReady;
   }
 
-  init() {
-    this._songs.push(new Song('grimes flesh without blood'));
-    this._songs.push(new Song('dream steppin two people'));
-    this._songs.push(new Song('unknown mortal multi-love'));
-    this._songs.push(new Song('lorn perfekt dark'));
-    this._songs.push(new Song('amor de que miku hatsune'));
+  play() {
+    switch (this.status) {
+      case QueueStatus.IDLE:
+        this.status = QueueStatus.PLAYING;
+        this.update();
+        this.onQueueStarted(this.rid);
+        break;
 
-    this._currentSong = this._songs.pop();
-  }
+      case QueueStatus.PLAYING:
+        this.pause();
+        break;
 
-  makeSink() {
-    const id = generateRandomId();
-    const responseSink = PassThrough();
+      case QueueStatus.PAUSED:
+        this.unpause();
+        break;
 
-    this._sinks.set(id, responseSink);
-
-    return { id, responseSink };
-  }
-
-  getSink(id) {
-    return this._sinks.get(id);
-  }
-
-  removeSink(id) {
-    this._sinks.delete(id);
-  }
-
-  getCurrentSong() {
-    return this._currentSong;
-  }
-
-  _broadcast(chunk) {
-    for (const [, sink] of this._sinks) {
-      sink.write(chunk);
+      default:
+        return;
     }
   }
 
+  isPlaying() {
+    return this.status === QueueStatus.PLAYING;
+  }
+
   update() {
+    this.onSongPreparing(this.rid);
+
+    this._currentSong = this._songs[this._currentSongIndex];
     console.log(`[QUEUE] Preparing song '${this._currentSong.url}'...`);
 
-    this.onSongPreparing();
-
     this._currentSong.prepare((filename) => {
-      this.isPlaying = true;
-
       const bitRate = this._currentSong.bitrate;
       this._readable = fs.createReadStream(filename);
 
@@ -86,23 +86,44 @@ class Queue {
         // TODO: Delete temporary files.
         console.log('[QUEUE] Song is over.');
 
-        if (this._songs.length == 0) {
-          this.isPlaying = false;
-          this.onQueueFinished();
+        if (this._currentSongIndex == this._songs.length - 1) {
+          this.stop();
         } else {
-          this._currentSong = this._songs.pop();
+          this._currentSongIndex++;
           this.update();
         }
       });
 
       this._readable.pipe(this._throttled);
 
-      this.onSongUpdated(this._currentSong);
-      this.onSongReady();
+      this.onSongUpdated(this.rid, this._currentSong);
+      this.onSongReady(this.rid);
     });
   }
 
-  skipSong() {
+  pause() {
+    this.status = QueueStatus.PAUSED;
+
+    if (this._readable) {
+      if (!this._readable.isPaused()) {
+        this._readable.pause();
+      }
+    }
+
+    this.onQueuePaused(this.rid);
+  }
+
+  unpause() {
+    this.status = QueueStatus.PLAYING;
+
+    if (this._readable.isPaused()) {
+      this._readable.resume();
+    }
+
+    this.onQueueUnpaused(this.rid);
+  }
+
+  kill() {
     if (this._readable) {
       this._readable.close();
     }
@@ -111,10 +132,72 @@ class Queue {
       this._throttled.removeAllListeners('data');
       this._throttled.removeAllListeners('end');
     }
+  }
 
-    if (this._songs.length > 0) {
-      this._currentSong = this._songs.pop();
+  stop() {
+    this.status = QueueStatus.IDLE;
+    this._currentSongIndex = 0;
+
+    this.kill();
+    this.onQueueFinished(this.rid);
+  }
+
+  addSong(songInfo) {
+    this._songs.push(new Song(songInfo));
+    this.onQueueUpdated(this.rid);
+
+    // DEBUG
+    if (!this.isPlaying()) {
+      this.play();
+    }
+  }
+
+  getCurrentSong() {
+    return this._currentSong;
+  }
+
+  removeSong(index) {
+    this._songs.splice(index, 1);
+    this.onQueueUpdated(this.rid);
+  }
+
+  skipSong() {
+    this.kill();
+
+    if (this._currentSongIndex < this._songs.length - 1) {
+      this._currentSongIndex++;
       this.update();
+    }
+
+    this.onQueueSkipped(this.rid);
+  }
+
+  makeSink(uid) {
+    const responseSink = PassThrough();
+    this._sinks.set(uid, responseSink);
+
+    return uid;
+  }
+
+  getSink(uid) {
+    return this._sinks.get(uid);
+  }
+
+  removeSink(uid) {
+    this._sinks.delete(uid);
+  }
+
+  getCurrentSong() {
+    return this._currentSong;
+  }
+
+  getSongs() {
+    return this._songs;
+  }
+
+  _broadcast(chunk) {
+    for (const [, sink] of this._sinks) {
+      sink.write(chunk);
     }
   }
 }

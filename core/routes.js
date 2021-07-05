@@ -1,38 +1,26 @@
-const path = require("path");
+const RoomManager = require("../managers/RoomManager");
 
+function setupRoutes(app) {
+  // app.all('*', (req, res, next) => {
+  //   res.cookie('XSRF-TOKEN', req.csrfToken());
+  //   next();
+  // });
 
-const Routes = {
-  name: 'streamServer',
-  register: async (server) => {
-    server.route({
-      method: "GET",
-      path: "/",
-      handler: (_, h) => h.file("index.html")
-    });
+  app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, '/lyt-client/build/index.html'));
+  });
 
-    server.route({
-      method: "GET",
-      path: "/{param*}",
-      handler: {
-        directory: {
-          path: ".",
-          redirectToSlash: true
-        }
-      }
-    });
+  app.get('/stream/:rid/:uid', (req, res) => {
+    const { uid, rid } = req.params;
 
-    server.route({
-      method: "GET",
-      path: "/stream/{sinkId}",
-      handler: (request, h) => {
-        const sink = queue.getSink(request.params.sinkId);
+    const room = RoomManager.getRoom(rid);
+    const sink = room.getQueue().getSink(uid);
 
-        if (sink) {
-          return h.response(sink).type("audio/mpeg");
-        }
-      }
-    })
-  }
-};
+    if (sink) {
+      res.type('audio/mpeg');
+      sink.pipe(res);
+    }
+  });
+}
 
-module.exports = Routes;
+module.exports = { setupRoutes };
